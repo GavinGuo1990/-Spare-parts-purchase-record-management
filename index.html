@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>家庭備品購買紀錄追蹤器 (IndexedDB)</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Configure Tailwind: use 'Inter' font and enable rounded corners -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        // Use Inter and Noto Sans TC for Traditional Chinese characters
+                        sans: ['Inter', 'Noto Sans TC', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom styles */
+        body {
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            background-color: #f3f4f6;
+        }
+        /* Hide native arrows for number input */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
+        }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+
+    <main class="max-w-7xl mx-auto bg-white shadow-xl rounded-xl p-4 md:p-8">
+        <h1 class="text-3xl font-bold text-gray-800 mb-6 border-b pb-2">備品購買紀錄管理 (本地儲存 IndexedDB)</h1>
+
+        <!-- Local Storage Status -->
+        <div id="storageStatus" class="text-xs text-blue-500 mb-4 p-2 bg-blue-50 rounded-lg border border-blue-200">
+            ✅ 資料儲存在您的瀏覽器中 (IndexedDB)。資料不會同步到雲端。
+        </div>
+
+        <!-- Main Layout: Left Input (1/3), Right Overview (2/3) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+            <!-- Left: Input Form -->
+            <div class="lg:col-span-1 p-4 bg-gray-50 rounded-xl shadow-lg h-fit">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">新增購買紀錄</h2>
+                <form id="purchaseForm" class="space-y-4">
+                    
+                    <!-- NEW: Separate Dropdown for Quick Select -->
+                    <div>
+                        <label for="quickSelect" class="block text-sm font-medium text-gray-700 mb-1">從歷史紀錄快速選擇</label>
+                        <select id="quickSelect" class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm bg-white text-gray-700">
+                            <option value="">-- 請選擇或手動輸入 --</option>
+                            <!-- Options dynamically populated by JavaScript -->
+                        </select>
+                    </div>
+
+                    <!-- Item Name Input (Now just a standard textbox) -->
+                    <div>
+                        <label for="itemName" class="block text-sm font-medium text-gray-700 mb-1">產品名稱 (或是輸入新產品)</label>
+                        <input type="text" id="itemName" name="itemName" required
+                               class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                               placeholder="衛生紙, 洗髮精, 牙刷...">
+                    </div>
+
+                    <!-- Purchase Date (Default to today) -->
+                    <div>
+                        <label for="purchaseDate" class="block text-sm font-medium text-gray-700 mb-1">購買日期</label>
+                        <input type="date" id="purchaseDate" name="purchaseDate" required
+                               class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm">
+                    </div>
+
+                    <!-- Purchase Amount -->
+                    <div>
+                        <label for="purchaseAmount" class="block text-sm font-medium text-gray-700 mb-1">購買金額 (NT$)</label>
+                        <input type="number" id="purchaseAmount" name="purchaseAmount" required min="0" step="any"
+                               class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                               placeholder="150">
+                    </div>
+
+                    <!-- Purchase Quantity -->
+                    <div>
+                        <label for="purchaseQuantity" class="block text-sm font-medium text-gray-700 mb-1">購買數量</label>
+                        <input type="number" id="purchaseQuantity" name="purchaseQuantity" required min="1" step="1"
+                               class="w-full p-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 shadow-sm"
+                               placeholder="1">
+                    </div>
+
+                    <button type="submit" id="submitButton" disabled
+                            class="w-full py-3 px-4 bg-gray-400 text-white font-bold rounded-lg shadow-md transition duration-300 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed text-lg">
+                        載入中... (等待資料庫連線)
+                    </button>
+                    <div id="formMessage" class="text-sm mt-2 hidden p-2 rounded-lg text-center"></div>
+                </form>
+            </div>
+
+            <!-- Right: Overview List -->
+            <div class="lg:col-span-2 p-4">
+                <h2 class="text-xl font-semibold text-gray-700 mb-4">產品上次購買概觀</h2>
+                <!-- Adaptive grid layout for overview cards -->
+                <div id="overviewList" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                    <!-- Overview list will be populated by JavaScript -->
+                    <div class="text-gray-500 p-4 bg-white rounded-lg shadow col-span-full">
+                        資料庫連線中... 請稍候或檢查 IndexedDB 支援。
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom: Annual Purchase Summary -->
+        <div class="mt-10 pt-6 border-t border-gray-200">
+            <h2 class="text-xl font-semibold text-gray-700 mb-4">產品平均年購買數量分析</h2>
+            <div id="annualSummary" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <!-- Summary cards will be populated by JavaScript -->
+            </div>
+        </div>
+    </main>
+    
+    <!-- Custom Confirmation Modal (Replaces alert/confirm) -->
+    <div id="customModal" class="fixed inset-0 bg-gray-900 bg-opacity-75 hidden items-center justify-center z-50 p-4 transition-opacity duration-300">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 space-y-4 transform scale-100 transition-transform duration-300">
+            <h3 id="modalTitle" class="text-xl font-bold text-gray-800">確認刪除</h3>
+            <p id="modalMessage" class="text-gray-600">您確定要刪除這筆紀錄嗎？</p>
+            <div class="flex justify-end space-x-3">
+                <button id="modalCancel" class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition duration-150">取消</button>
+                <button id="modalConfirm" class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition duration-150">確定刪除</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- IndexedDB Logic and Core Application Script -->
+    <script>
+        // --- IndexedDB Configuration ---
+        const DB_NAME = 'PurchaseDB';
+        const DB_VERSION = 1;
+        const STORE_NAME = 'purchases';
+
+        let db = null;
+        let isDbReady = false; 
+        
+        // Modal elements
+        const customModal = document.getElementById('customModal');
+        const modalMessage = document.getElementById('modalMessage');
+        const modalConfirmBtn = document.getElementById('modalConfirm');
+        const modalCancelBtn = document.getElementById('modalCancel');
+
+        // --- IndexedDB Utility Functions (Promise-based Wrapper) ---
+        
+        /**
+         * Opens the IndexedDB connection.
+         * @returns {Promise<IDBDatabase>} The IDBDatabase object.
+         */
+        const openDB = () => {
+            return new Promise((resolve, reject) => {
+                if (!window.indexedDB) {
+                    reject(new Error("您的瀏覽器不支援 IndexedDB。"));
+                    return;
+                }
+
+                const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+
+                request.onerror = (event) => {
+                    console.error("Database error:", event.target.error);
+                    reject(event.target.error);
+                };
+
+                request.onsuccess = (event) => {
+                    db = event.target.result;
+                    isDbReady = true;
+                    resolve(db);
+                };
+
+                request.onupgradeneeded = (event) => {
+                    const db = event.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        // Create an object store with 'id' as the key path (auto-incrementing)
+                        db.createObjectStore(STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                    }
+                };
+            });
+        };
+
+        /**
+         * Adds a new item to the object store.
+         * Modified: Waits for transaction.oncomplete instead of request.onsuccess
+         * @param {object} item - The purchase record to store.
+         * @returns {Promise<number>} The ID of the newly added item.
+         */
+        const addItem = (item) => {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.add(item);
+
+                // FIX: Use transaction.oncomplete to ensure data is fully committed
+                // before resolving. This fixes the issue where data wouldn't show up immediately.
+                transaction.oncomplete = () => {
+                    resolve(request.result);
+                };
+
+                transaction.onerror = (event) => {
+                    reject(event.target.error);
+                };
+            });
+        };
+
+        /**
+         * Retrieves all items from the object store.
+         * @returns {Promise<Array<object>>} An array of all purchase records.
+         */
+        const getAllItems = () => {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readonly');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.getAll();
+
+                request.onsuccess = (event) => {
+                    resolve(event.target.result);
+                };
+
+                request.onerror = (event) => {
+                    reject(event.target.error);
+                };
+            });
+        };
+
+        /**
+         * Deletes an item by its ID.
+         * Modified: Waits for transaction.oncomplete
+         * @param {number} id - The ID of the item to delete.
+         * @returns {Promise<void>}
+         */
+        const deleteItem = (id) => {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([STORE_NAME], 'readwrite');
+                const store = transaction.objectStore(STORE_NAME);
+                const request = store.delete(id);
+
+                // FIX: Use transaction.oncomplete to ensure deletion is fully committed
+                transaction.oncomplete = () => {
+                    resolve();
+                };
+
+                transaction.onerror = (event) => {
+                    reject(event.target.error);
+                };
+            });
+        };
+
+        // --- Global Helpers ---
+
+        // Helper function: Show notification message
+        const showMessage = (message, isError = false) => {
+            const msgEl = document.getElementById('formMessage');
+            msgEl.textContent = message;
+            msgEl.className = isError
+                ? 'text-sm mt-2 p-2 rounded-lg text-red-700 bg-red-100 block text-center'
+                : 'text-sm mt-2 p-2 rounded-lg text-green-700 bg-green-100 block text-center';
+            msgEl.style.display = 'block';
+            setTimeout(() => { msgEl.style.display = 'none'; }, 3000);
+        };
+        
+        // Helper function: Format date to YYYY-MM-DD
+        const formatDate = (date) => {
+            const d = new Date(date);
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${d.getFullYear()}-${month}-${day}`;
+        };
+
+        // Helper function: Set date input default to today
+        const setInitialDate = () => {
+            const dateInput = document.getElementById('purchaseDate');
+            if (dateInput) {
+                dateInput.value = formatDate(new Date());
+            }
+        };
+
+        // Helper function: Update submit button state
+        const updateSubmitButton = (isReady) => {
+            const button = document.getElementById('submitButton');
+            if (!button) return;
+            
+            isDbReady = isReady;
+
+            if (isReady) {
+                button.disabled = false;
+                button.textContent = '💾 儲存紀錄';
+                button.classList.remove('bg-gray-400');
+                button.classList.add('bg-blue-600', 'hover:bg-blue-700', 'focus:ring-blue-500');
+            } else {
+                button.disabled = true;
+                button.textContent = '載入中... (等待資料庫連線)';
+                button.classList.add('bg-gray-400');
+                button.classList.remove('bg-blue-600', 'hover:bg-blue-700', 'focus:ring-blue-500');
+            }
+        };
+        
+        // --- Custom Modal Functions ---
+
+        /**
+         * Shows the custom confirmation modal.
+         * @param {string} message - The message to display in the modal.
+         * @param {function} onConfirm - Callback function to execute on confirmation.
+         */
+        const showConfirmModal = (message, onConfirm) => {
+            modalMessage.textContent = message;
+            customModal.style.display = 'flex'; // Use flex to center
+
+            // Clear previous listeners and set new handlers
+            modalConfirmBtn.onclick = null;
+            modalCancelBtn.onclick = null;
+
+            const newConfirmHandler = () => {
+                customModal.style.display = 'none';
+                onConfirm();
+            };
+
+            const newCancelHandler = () => {
+                customModal.style.display = 'none';
+            };
+
+            modalConfirmBtn.addEventListener('click', newConfirmHandler, { once: true });
+            modalCancelBtn.addEventListener('click', newCancelHandler, { once: true });
+        };
+
+
+        // --- Core Rendering Functions ---
+        
+        // Render overview list (right panel)
+        const renderOverview = (processedData) => {
+            const container = document.getElementById('overviewList');
+            container.innerHTML = ''; 
+
+            if (Object.keys(processedData).length === 0) {
+                container.innerHTML = `<div class="col-span-1 sm:col-span-2 xl:col-span-3">
+                    <p class="text-gray-500 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                        目前沒有任何購買紀錄。請在左側新增第一筆紀錄！
+                    </p>
+                </div>`;
+                return;
+            }
+
+            const sortedItems = Object.entries(processedData)
+                .sort(([, a], [, b]) => b.lastDate.getTime() - a.lastDate.getTime()); // Sort by most recent purchase date
+
+            sortedItems.forEach(([name, data]) => {
+                const lastDateObj = data.lastDate;
+                const lastQuantity = data.lastQuantity; 
+                const today = new Date();
+                const diffTime = today.getTime() - lastDateObj.getTime();
+                const daysSince = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                
+                // Get the ID of the latest record (for deletion)
+                // We assume the last record in the sorted 'records' array is the latest one
+                const lastRecordId = data.records[data.records.length - 1]?.id || null;
+
+                const card = document.createElement('div');
+                card.className = 'flex flex-col justify-between items-start p-5 bg-white rounded-xl shadow-lg hover:shadow-xl transition duration-150 border-l-4 border-blue-500 h-full';
+
+                card.innerHTML = `
+                    <div class="w-full flex justify-between items-start">
+                        <p class="text-xl font-bold text-gray-800 truncate mb-1" title="${name}">${name}</p>
+                        <!-- Delete Button (for the latest record) -->
+                        ${lastRecordId !== null ? `
+                            <button data-id="${lastRecordId}" 
+                                    class="delete-btn text-gray-400 hover:text-red-600 transition duration-150 p-1 rounded-full hover:bg-red-50"
+                                    title="刪除最近一筆紀錄 (${formatDate(lastDateObj)}: ${lastQuantity} 份)">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                                    <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 6h6v10H7V6z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        ` : ''}
+                    </div>
+                    <div class="w-full mt-2">
+                        <p class="text-sm text-gray-500">上次日期：<span class="font-semibold text-gray-700">${formatDate(lastDateObj)}</span></p>
+                        <p class="text-sm text-gray-500">上次數量：<span class="font-semibold text-gray-700">${lastQuantity}</span></p>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-gray-100 w-full text-right">
+                        <p class="text-3xl font-extrabold ${daysSince > 90 ? 'text-red-600' : daysSince > 30 ? 'text-amber-600' : 'text-green-600'}">${daysSince}</p>
+                        <p class="text-xs text-gray-500">天 (距離上次購買)</p>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+            // Register delete button event
+            document.querySelectorAll('.delete-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    // ID in IndexedDB is a number, but data-id attribute is a string. Convert back.
+                    const docId = parseInt(e.currentTarget.getAttribute('data-id'), 10);
+                    const title = e.currentTarget.title.replace('刪除最近一筆紀錄 (', '').replace(')', '');
+                    const itemName = e.currentTarget.closest('.flex').querySelector('p').textContent;
+                    
+                    // Use custom modal instead of confirm()
+                    showConfirmModal(`您確定要刪除這筆紀錄嗎？\n產品：${itemName.substring(0, 20)}\n詳細：${title}`, () => {
+                        deleteRecord(docId);
+                    });
+                });
+            });
+        };
+
+        // Render average annual purchase summary (bottom panel)
+        const renderSummary = (processedData) => {
+            const container = document.getElementById('annualSummary');
+            container.innerHTML = ''; 
+
+            if (Object.keys(processedData).length === 0) {
+                 container.innerHTML = `<div class="col-span-full text-gray-500 p-4 bg-gray-100 rounded-lg">
+                    沒有足夠的資料來計算平均年購買數量。
+                </div>`;
+                return;
+            }
+
+            // Sort by average quantity (highest first)
+            const sortedSummaries = Object.entries(processedData).map(([name, data]) => {
+                const totalQuantity = data.totalQuantity;
+                // Calculate number of distinct years spanned by the data
+                const firstYear = data.firstDate.getFullYear();
+                const lastYear = data.lastDate.getFullYear();
+                
+                // Calculate the difference in years for calculation (min 1 year)
+                let divisor = 1;
+                if (firstYear !== lastYear) {
+                    // This calculation is an approximation: 
+                    // Use the time difference divided by 365.25 days to get the actual number of years span
+                    const totalDays = (data.lastDate.getTime() - data.firstDate.getTime()) / (1000 * 60 * 60 * 24);
+                    // Use the maximum of 1 year or the calculated year span
+                    divisor = Math.max(1, totalDays / 365.25);
+                } else {
+                    // If all records are in the same year, the divisor is 1
+                    divisor = 1; 
+                }
+                
+                const avgAnnualQuantity = (totalQuantity / divisor).toFixed(2);
+                const yearsSpanText = divisor === 1 ? '1 年' : `${divisor.toFixed(1)} 年紀錄`;
+
+                return { name, avgAnnualQuantity, yearsSpanText };
+            }).sort((a, b) => parseFloat(b.avgAnnualQuantity) - parseFloat(a.avgAnnualQuantity));
+
+
+            sortedSummaries.forEach(({ name, avgAnnualQuantity, yearsSpanText }) => {
+                const card = document.createElement('div');
+                card.className = 'bg-white p-5 rounded-xl shadow-md border border-gray-100 hover:border-indigo-400 transition duration-150';
+
+                card.innerHTML = `
+                    <p class="text-lg font-medium text-gray-700 truncate mb-1" title="${name}">${name}</p>
+                    <p class="text-4xl font-extrabold text-indigo-600 mt-1">${avgAnnualQuantity}</p>
+                    <p class="text-sm text-gray-500">平均每年購買數量 (基於 ${yearsSpanText})</p>
+                `;
+                container.appendChild(card);
+            });
+        };
+
+        // Update the Quick Select Dropdown (formerly Datalist)
+        const updateQuickSelect = (existingNames) => {
+            const select = document.getElementById('quickSelect');
+            // Keep the first default option
+            select.innerHTML = '<option value="">-- 請選擇或手動輸入 --</option>';
+            
+            const uniqueNames = [...new Set(existingNames)].sort(); 
+            uniqueNames.forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                select.appendChild(option);
+            });
+        };
+
+        // Core data processing logic
+        const processDataAndRender = (purchases) => {
+            // Sort records by date: oldest first
+            // IndexedDB stores Date objects directly, so no need for .toDate() conversion
+            purchases.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+            const processedData = purchases.reduce((acc, purchase) => {
+                const name = purchase.name.trim();
+
+                if (!acc[name]) {
+                    acc[name] = {
+                        lastDate: purchase.date,
+                        lastQuantity: purchase.quantity, 
+                        firstDate: purchase.date,
+                        totalQuantity: 0,
+                        records: [],
+                    };
+                }
+                
+                // Always update to the latest record (because we sorted purchases)
+                if (purchase.date.getTime() >= acc[name].lastDate.getTime()) {
+                    acc[name].lastDate = purchase.date;
+                    acc[name].lastQuantity = purchase.quantity; 
+                }
+
+                // Find the earliest record
+                if (purchase.date.getTime() < acc[name].firstDate.getTime()) {
+                    acc[name].firstDate = purchase.date;
+                }
+
+                acc[name].totalQuantity += purchase.quantity;
+                acc[name].records.push(purchase);
+                return acc;
+            }, {});
+
+            const existingNames = Object.keys(processedData);
+
+            renderOverview(processedData);
+            renderSummary(processedData);
+            updateQuickSelect(existingNames); // Update the dropdown instead of datalist
+        };
+
+
+        // --- IndexedDB Interaction and Main Logic ---
+
+        // Load all data from IndexedDB and trigger rendering
+        const loadAndRenderData = async () => {
+            if (!isDbReady) return;
+            try {
+                const purchases = await getAllItems();
+                processDataAndRender(purchases);
+            } catch (error) {
+                console.error("Failed to load data from IndexedDB:", error);
+                showMessage("資料載入失敗，請檢查瀏覽器儲存或權限。", true);
+            }
+        };
+
+        // Handle record deletion
+        const deleteRecord = async (docId) => {
+            if (!isDbReady) {
+                showMessage("資料庫連線尚未就緒，無法執行刪除操作。", true);
+                return;
+            }
+            try {
+                // Wait for the deletion
+                await deleteItem(docId); 
+                showMessage("✅ 紀錄已成功刪除！");
+                // Refresh data
+                await loadAndRenderData(); 
+            } catch (error) {
+                console.error("Failed to delete IndexedDB record:", error);
+                showMessage(`刪除失敗: ${error.message}`, true);
+            }
+        };
+
+
+        // Handle form submission
+        const handleFormSubmit = async (event) => {
+            event.preventDefault();
+
+            // Ensure DB is ready
+            if (!isDbReady) {
+                showMessage("資料庫連線尚未完成，請稍候再試或重新整理頁面。", true);
+                return;
+            }
+
+            const form = event.target;
+            const itemName = form.itemName.value.trim();
+            const purchaseDateStr = form.purchaseDate.value;
+            const purchaseAmount = parseFloat(form.purchaseAmount.value);
+            const purchaseQuantity = parseInt(form.purchaseQuantity.value, 10);
+
+            if (!itemName || isNaN(purchaseAmount) || isNaN(purchaseQuantity) || purchaseQuantity <= 0 || purchaseAmount < 0) {
+                showMessage("請確認所有欄位均已正確填寫（名稱不可空白，金額/數量必須為有效數字且數量需大於 0）。", true);
+                return;
+            }
+
+            // Convert date string to Date object
+            const purchaseDate = new Date(purchaseDateStr);
+            // Ensure the date is correctly captured at midnight UTC for consistency
+            purchaseDate.setUTCHours(0, 0, 0, 0);
+
+            try {
+                // Temporarily disable the button to prevent double submission
+                updateSubmitButton(false); 
+                document.getElementById('submitButton').textContent = '儲存中...';
+
+                const newRecord = {
+                    name: itemName,
+                    date: purchaseDate, // Stored as Date object in IndexedDB
+                    amount: purchaseAmount,
+                    quantity: purchaseQuantity,
+                    // IndexedDB will automatically assign the 'id'
+                };
+
+                await addItem(newRecord);
+
+                showMessage(`成功儲存：${itemName} 購買 ${purchaseQuantity} 份！`);
+                form.reset();
+                setInitialDate(); // Reset date to today
+                
+                // Reset the select dropdown as well
+                document.getElementById('quickSelect').value = "";
+                
+                // Refresh data after mutation
+                await loadAndRenderData();
+
+            } catch (error) {
+                console.error("Failed to write to IndexedDB:", error);
+                // Ensure the error message is shown to the user
+                showMessage(`儲存失敗: ${error.message}`, true);
+            } finally {
+                // Re-enable the button regardless of success/failure
+                updateSubmitButton(true);
+            }
+        };
+
+        // --- Application Main Entry Point ---
+        const initApp = async () => {
+            try {
+                // 1. Initialize IndexedDB
+                await openDB();
+                console.log("IndexedDB connection successful.");
+                
+                // 2. Set UI state and load data
+                updateSubmitButton(true); 
+                await loadAndRenderData();
+
+                // 3. Register form event
+                document.getElementById('purchaseForm').addEventListener('submit', handleFormSubmit);
+
+                // 4. Register Quick Select change event
+                document.getElementById('quickSelect').addEventListener('change', (e) => {
+                    const selectedValue = e.target.value;
+                    if (selectedValue) {
+                        document.getElementById('itemName').value = selectedValue;
+                    }
+                });
+
+            } catch (error) {
+                console.error("Application initialization failed:", error);
+                document.getElementById('overviewList').innerHTML = `<div class="col-span-full text-red-500 p-4 bg-red-100 rounded-lg border border-red-200">
+                    🔴 錯誤：無法連線到本地資料庫。請檢查您的瀏覽器是否允許使用 IndexedDB。
+                </div>`;
+                updateSubmitButton(false);
+            }
+        };
+        
+        // Set the initial date immediately
+        setInitialDate();
+
+        // Start the application when the page is loaded
+        window.onload = initApp;
+
+    </script>
+</body>
+</html>
